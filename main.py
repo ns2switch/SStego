@@ -1,16 +1,35 @@
-# This is a sample Python script.
+#!/usr/bin/env python3
+# coding:UTF-8
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+"""SStego.py
+
+Usage:
+  SStego.py encode -i <input> -o <output> -f <file> -p password
+  SStego.py decode -i <input> -o <output> -p password
+
+Options:
+  -h, --help                Show this help
+  --version                 Show the version
+  -f,--file=<file>          File to hide
+  -i,--in=<input>           Input image (carrier)
+  -o,--out=<output>         Output image (or extracted file)
+
+"""
+from docopt import docopt
+
+def main() :
+	args = docopt(__doc__, version='Naval Fate 2.0')
+	in_f = args["--in"]
+	out_f = args["--out"]
 
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+	if args['encode'] :
+		print ("encode")
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+	elif args["decode"] :
+		print("decode")
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+
+if __name__ == '__main__' :
+	main ()
