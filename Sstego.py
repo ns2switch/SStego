@@ -17,22 +17,15 @@ Options:
   -p,--password=<password>  Password to encrypt data
 
 """
-import io
-import mmap
 import os
-import re
 import secrets
 import sys
-import itertools
 from dataclasses import dataclass
-
-import bitstring
-import numpy as np
 from PIL import Image, ImageStat
+from bitstring import BitArray
 from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from docopt import docopt
-from bitstring import BitArray
 
 DEFAULT_KEYLEN = 16
 KEY_LENGTHS = (16, 24, 32)
