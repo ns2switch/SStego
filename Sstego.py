@@ -18,11 +18,14 @@ Options:
 
 """
 import io
+import mmap
 import os
 import secrets
 import sys
 import itertools
 from dataclasses import dataclass
+
+import bitstring
 import numpy as np
 from PIL import Image, ImageStat
 from cryptography.hazmat.primitives import padding
@@ -95,7 +98,7 @@ def cifrado_cfb(secreto, datas) :
 	value = ''.join (format (byte, '08b') for byte in ctadd)
 	return value
 
-
+#Es mas rapido hacerlo con putdata , se necesita cambiar.
 def img_hide(img, string, file_out) :
 	image = Image.open (img, 'r')
 	width, height = image.size
@@ -123,21 +126,38 @@ def img_hide(img, string, file_out) :
 	stat = ImageStat.Stat (image)
 	print (stat.mean)
 	image.save (file_out)
-	return image
+	with open(file_out,"a") as file:
+		file.write("#N"+str(data_len))
+
+def get_n_least_significant_bits(value, n):
+    value = value << 255 - n
+    value = value % 255
+    return value >> 8 - n
 
 
-def recoverHideData(img, size) :
-	buf = ''
-	width, height = img.size
-	bufArray = []
-	counter = 0
-	for x in range (width) :
-		for y in range (height) :
-			if (counter < size * 4) :
-				pixel = img.getpixel ((y, x))
-				pixel = format (pixel, '08b')
-				bufArray += pixel[-2 :]
-				counter += 1
+def recover_hide_data(img, size) :
+	image = Image.open(img)
+	width, height = image.size
+	index = 0
+	bufArray = ''
+	data_len = size
+	for x in range (OFFSET, width) :
+		for y in range (OFFSET, height) :
+			pixel = image.getpixel ((x, y))
+			if index < data_len :
+				pixelbitR = BitArray (uint=pixel[0], length=8).bin
+				bufArrayR = pixelbitR[-1:]
+				index += 1
+			if index < data_len :
+				pixelbitG = BitArray (uint=pixel[1], length=8).bin
+				bufArrayG = pixelbitR[-1:]
+			if index < data_len :
+				pixelbitB = BitArray (uint=pixel[2], length=8).bin
+				bufArrayB = pixelbitR[-1:]
+			if index >= data_len :
+				break
+			bufArray +=str(bufArrayR)+str(bufArrayG)+str(bufArrayB)
+	print(bufArray)
 	return bufArray
 
 
@@ -145,15 +165,20 @@ def recover_bit_data(data) :
 	bytes = int (data, 2).to_bytes ((len (data) + 7) // 8, byteorder='big')
 	iv = bytes[-16 :]
 	data = bytes[:-16]
-	return [data, iv]
+	print(data)
+	return [iv, data]
 
 
-def descifradocfb(secreto, iv, datas) :
+def descifrado_cfb(secreto, iv, datas) :
 	cipher = Cipher (algorithms.AES (secreto), modes.CFB (iv))
 	decryptor = cipher.decryptor ()
 	value = decryptor.update (datas) + decryptor.finalize ()
+	print(value)
 	return value
 
+def save_file(file_out,data):
+	with open(file_out, 'wb') as output:
+		output.write(data)
 
 def main() :
 	args = docopt (__doc__, version='0.1')
@@ -177,9 +202,10 @@ def main() :
 			sec = paswword_padding (secret)
 			print ('encondig data')
 			cdata = cifrado_cfb (sec, datas)
+			print(cdata)
 			print ('cypher data size: ', len (cdata) / 8)
 			bytes_out = img_hide (file_in, cdata, file_out)
-
+			print ("Process finished, your image is " + str (file_out) )
 		except ValueError as e :
 			print ('An Error Ocurred ', e)
 			sys.exit
@@ -188,9 +214,17 @@ def main() :
 		# leemos argumentos
 		file_in = args['--in']
 		file_out = args['--out']
-		data_in = args['--file']
 		secret = args['--password']
-		print ('decode')
+		try:
+			imagedata = recover_hide_data(file_in,54)
+			cipher = recover_bit_data(imagedata)
+			password = paswword_padding(secret)
+			outdata = descifrado_cfb(password,cipher[0],cipher[1])
+			save_file(file_out,outdata)
+		except ValueError as e:
+			print ('An Error Ocurred ', e)
+			sys.exit
+
 
 
 if __name__ == '__main__' :
