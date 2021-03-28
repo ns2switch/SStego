@@ -14,17 +14,25 @@ Options:
   -f,--file=<file>          File to hide
   -i,--in=<input>           Input image (carrier)
   -o,--out=<output>         Output image (or extracted file)
-  -p,--password=<password>  Password to encrypt data Minimo 16 caracteres
+  -p,--password=<password>  Password to encrypt data
 
 """
+import io
 import os
 import secrets
 import sys
+import itertools
 from dataclasses import dataclass
-
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageStat
+from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from docopt import docopt
+from bitstring import BitArray
+
+DEFAULT_KEYLEN = 16
+KEY_LENGTHS = (16, 24, 32)
+OFFSET = 16
 
 
 # definimos los dataclass de cada archivo
@@ -37,24 +45,21 @@ class Img_info :
 
 	def max_size(self) :
 		if self.mode in ['RGB', 'BGR', 'CMYK'] :
-			print ('Color image')
-			return self.size[0] * self.size[1] * 8 * 3
+			return self.size[0] * self.size[1] * 2 / 8
 		elif self.mode == 'L' :
-			print ('Grey Scale Image')
-			return self.size[0] * self.size[1] * 8
+			return self.size[0] * self.size[1] / 8
 
 
 def read_image_info(file) :  # Leemos la imagen de entrada y comprobamos el tipo y el tamaño
 	im = Image.open (file, 'r')
+	stat = ImageStat.Stat (im)
+	print (stat.mean)
 	im.close ()
 	return im.format, im.size, im.mode
 
-def convert_to_bit_array(img):
-	im = Image.open(img,'r')
-
 
 def read_file(file) :  # funcion de lectura de archivos
-	archivo = open (file,'rb')
+	archivo = open (file, 'rb')
 	value = archivo.read ()
 	archivo.close ()
 	return value
@@ -66,21 +71,93 @@ def write_file(file, data) :  # Funcion para la escritura de archivos en modo bi
 	archivo.close ()
 
 
-def cifradocfb(secreto, datas) :
+def paswword_padding(passwd) :
+	passlen = len (passwd)
+	passbyte = bytes (passwd, 'UTF-8')
+	if passlen not in KEY_LENGTHS :
+		if passlen < 16 :
+			padder = padding.ANSIX923 (128).padder ()
+			pad_passwd = padder.update (passbyte)
+			pad_passwd += padder.finalize ()
+		elif passlen < 24 :
+			padder = padding.ANSIX923 (192).padder ()
+			pad_passwd = padder.update (passbyte)
+			pad_passwd += padder.finalize ()
+		elif passlen < 32 :
+			padder = padding.ANSIX923 (256).padder ()
+			pad_passwd = padder.update (passbyte)
+			pad_passwd += padder.finalize ()
+		else :
+			print ('Password cant be larger than 32bytes')
+	return pad_passwd
+
+
+def cifrado_cfb(secreto, datas) :
 	iv = secrets.token_bytes (16)
 	cipher = Cipher (algorithms.AES (secreto), modes.CFB (iv))  # Elegimos el algoritmo de cifrado y el modo
 	encryptor = cipher.encryptor ()  # Iniciamos el cifrado
 	ct = encryptor.update (datas) + encryptor.finalize ()  # Creamos el texto cifrado
-	value = ''.join(format(byte, '08b') for byte in ct)
+	ctadd = b''.join ([ct, iv])
+	value = ''.join (format (byte, '08b') for byte in ctadd)
 	return value
 
 
+def img_hide(img, string,file_out) :
+	image = Image.open (img, 'r')
+	width, height = image.size
+	data_len = len (string)
+	index = 0
+	print (data_len)
+	for x in range (OFFSET, width) :
+		for y in range (OFFSET, height) :
+			pixel = image.getpixel ((x, y))
+			if index < data_len :
+				pixelbitR = BitArray (uint=pixel[0], length=8).bin
+				pixelbitR = pixelbitR[:-1] + string[index]
+				index += 1
+			if index < data_len :
+				pixelbitG = BitArray (uint=pixel[1], length=8).bin
+				pixelbitG = pixelbitG[:-1] + string[index]
+				index += 1
+			if index < data_len :
+				pixelbitB = BitArray (uint=pixel[2], length=8).bin
+				pixelbitB = pixelbitB[:-1] + string[index]
+				index += 1
+			if index >= data_len :
+				break
+			image.putpixel ((x, y), (BitArray (bin=pixelbitR).int, BitArray (bin=pixelbitG).int, BitArray (bin=pixelbitB).int))
+
+	image.save(file_out)
+	return image
+
+
+def recoverHideData(img, size) :
+	buf = ''
+	width, height = img.size
+	bufArray = []
+	counter = 0
+	for x in range (width) :
+		for y in range (height) :
+			if (counter < size * 4) :
+				pixel = img.getpixel ((y, x))
+				pixel = format (pixel, '08b')
+				bufArray += pixel[-2 :]
+				counter += 1
+	return bufArray
+
+
+def recover_bit_data(data) :
+	bytes = int (data, 2).to_bytes ((len (data) + 7) // 8, byteorder='big')
+	iv = bytes[-16 :]
+	data = bytes[:-16]
+	return [data, iv]
+
 
 def descifradocfb(secreto, iv, datas) :
-	cipher = Cipher (algorithms.AES (secreto), modes.CFB (iv))  # Elegimos el algoritmo de cifrado
-	decryptor = cipher.decryptor ()  # Desciframos el criptograma
-	text = decryptor.update (datas) + decryptor.finalize ()  # finalizamos el descifrado
-	return text
+	cipher = Cipher (algorithms.AES (secreto), modes.CFB (iv))
+	decryptor = cipher.decryptor ()
+	value = decryptor.update (datas) + decryptor.finalize ()
+	return value
 
 
 def main() :
@@ -93,21 +170,23 @@ def main() :
 		secret = args['--password']
 		try :
 			size = os.path.getsize (file_in)
-			print ("Size (In bytes) of '%s':" % file_in, size)
+			print ("Size of " + str (file_in) + ': ' + str (size) + ' Bytes')
 			in_image = read_image_info (file_in)
 			infile = Img_info (file_in, in_image[0], in_image[1], in_image[2])
+			print (' max file size to hide: %s bytes' % infile.max_size ())
 			if infile.mode in ['1', '1;I', '1;R'] :
 				sys.exit ('Cannot embed messages in black and white images')
 			if infile.mode == 'P' :
 				sys.exit ('Cannot embed messages in palette-mapped image')
-			datas = read_file(data_in)
-			sec = bytes (secret, encoding='utf8')
-			cdata = cifradocfb(sec,datas)
-			print ('Tamaño de los datos cifrados: ' ,len (cdata))
-			print (' max file size to hide: %s bytes' % infile.max_size ())
+			datas = read_file (data_in)
+			sec = paswword_padding (secret)
+			print ('encondig data')
+			cdata = cifrado_cfb (sec, datas)
+			print ('cypher data size: ', len (cdata) / 8)
+			bytes_out = img_hide (file_in, cdata,file_out)
 
-		except ValueError as e:
-			print  ('An Error Ocurred ', e)
+		except ValueError as e :
+			print ('An Error Ocurred ', e)
 			sys.exit
 
 	elif args['d'] :
