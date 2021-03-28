@@ -65,12 +65,6 @@ def read_file(file) :  # funcion de lectura de archivos
 	return value
 
 
-def write_file(file, data) :  # Funcion para la escritura de archivos en modo binario
-	archivo = open (file, 'wb')
-	value = archivo.write (data)
-	archivo.close ()
-
-
 def paswword_padding(passwd) :
 	passlen = len (passwd)
 	passbyte = bytes (passwd, 'UTF-8')
@@ -102,7 +96,7 @@ def cifrado_cfb(secreto, datas) :
 	return value
 
 
-def img_hide(img, string,file_out) :
+def img_hide(img, string, file_out) :
 	image = Image.open (img, 'r')
 	width, height = image.size
 	data_len = len (string)
@@ -125,9 +119,10 @@ def img_hide(img, string,file_out) :
 				index += 1
 			if index >= data_len :
 				break
-			image.putpixel ((x, y), (BitArray (bin=pixelbitR).int, BitArray (bin=pixelbitG).int, BitArray (bin=pixelbitB).int))
-
-	image.save(file_out)
+			image.putpixel ((x, y),(BitArray (bin=pixelbitR).uint, BitArray (bin=pixelbitG).uint, BitArray (bin=pixelbitB).uint))
+	stat = ImageStat.Stat (image)
+	print (stat.mean)
+	image.save (file_out)
 	return image
 
 
@@ -183,7 +178,7 @@ def main() :
 			print ('encondig data')
 			cdata = cifrado_cfb (sec, datas)
 			print ('cypher data size: ', len (cdata) / 8)
-			bytes_out = img_hide (file_in, cdata,file_out)
+			bytes_out = img_hide (file_in, cdata, file_out)
 
 		except ValueError as e :
 			print ('An Error Ocurred ', e)
