@@ -104,7 +104,6 @@ def img_hide(img, string, file_out) :
 	width, height = image.size
 	data_len = len (string)
 	index = 0
-	print (data_len)
 	for x in range (OFFSET, width) :
 		for y in range (OFFSET, height) :
 			pixel = image.getpixel ((x, y))
@@ -112,17 +111,11 @@ def img_hide(img, string, file_out) :
 				pixelbitR = BitArray (uint=pixel[0], length=8).bin
 				pixelbitR = pixelbitR[:-1] + string[index]
 				index += 1
-			if index < data_len :
-				pixelbitG = BitArray (uint=pixel[1], length=8).bin
-				pixelbitG = pixelbitG[:-1] + string[index]
-				index += 1
-			if index < data_len :
-				pixelbitB = BitArray (uint=pixel[2], length=8).bin
-				pixelbitB = pixelbitB[:-1] + string[index]
-				index += 1
+
 			if index >= data_len :
 				break
-			image.putpixel ((x, y),(BitArray (bin=pixelbitR).uint, BitArray (bin=pixelbitG).uint, BitArray (bin=pixelbitB).uint))
+
+			image.putpixel ((x, y),(BitArray(bin=pixelbitR).uint, pixel[1],pixel[2]))
 	stat = ImageStat.Stat (image)
 	print (stat.mean)
 	image.save (file_out)
@@ -148,15 +141,10 @@ def recover_hide_data(img, size) :
 				pixelbitR = BitArray (uint=pixel[0], length=8).bin
 				bufArrayR = pixelbitR[-1:]
 				index += 1
-			if index < data_len :
-				pixelbitG = BitArray (uint=pixel[1], length=8).bin
-				bufArrayG = pixelbitR[-1:]
-			if index < data_len :
-				pixelbitB = BitArray (uint=pixel[2], length=8).bin
-				bufArrayB = pixelbitR[-1:]
+
 			if index >= data_len :
 				break
-			bufArray +=str(bufArrayR)+str(bufArrayG)+str(bufArrayB)
+			bufArray +=str(bufArrayR)
 	print(bufArray)
 	return bufArray
 
@@ -216,7 +204,7 @@ def main() :
 		file_out = args['--out']
 		secret = args['--password']
 		try:
-			imagedata = recover_hide_data(file_in,54)
+			imagedata = recover_hide_data(file_in,161)
 			cipher = recover_bit_data(imagedata)
 			password = paswword_padding(secret)
 			outdata = descifrado_cfb(password,cipher[0],cipher[1])
