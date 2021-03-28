@@ -20,6 +20,7 @@ Options:
 import io
 import mmap
 import os
+import re
 import secrets
 import sys
 import itertools
@@ -35,7 +36,7 @@ from bitstring import BitArray
 
 DEFAULT_KEYLEN = 16
 KEY_LENGTHS = (16, 24, 32)
-OFFSET = 16
+OFFSET = 40
 
 
 # definimos los dataclass de cada archivo
@@ -48,7 +49,7 @@ class Img_info :
 
 	def max_size(self) :
 		if self.mode in ['RGB', 'BGR', 'CMYK'] :
-			return self.size[0] * self.size[1] * 2 / 8
+			return self.size[0] * self.size[1]  / 8
 		elif self.mode == 'L' :
 			return self.size[0] * self.size[1] / 8
 
@@ -56,7 +57,7 @@ class Img_info :
 def read_image_info(file) :  # Leemos la imagen de entrada y comprobamos el tipo y el tamaño
 	im = Image.open (file, 'r')
 	stat = ImageStat.Stat (im)
-	print (stat.mean)
+	print ('Average (arithmetic mean) pixel level for each band: ',stat.mean)
 	im.close ()
 	return im.format, im.size, im.mode
 
@@ -103,57 +104,72 @@ def img_hide(img, string, file_out) :
 	image = Image.open (img, 'r')
 	width, height = image.size
 	data_len = len (string)
+	databit = BitArray (uint=(data_len + 1),length=31).bin
+	databit_len =len(databit)
 	index = 0
-	for x in range (OFFSET, width) :
-		for y in range (OFFSET, height) :
+	indexdata = 0
+	for x in range (8, OFFSET) :
+		for y in range (8, OFFSET) :
 			pixel = image.getpixel ((x, y))
-			if index < data_len :
+			if index < databit_len :
 				pixelbitR = BitArray (uint=pixel[0], length=8).bin
-				pixelbitR = pixelbitR[:-1] + string[index]
+				pixelbitR = pixelbitR[:-1] + databit[index]
 				index += 1
-
-			if index >= data_len :
+			if index >= databit_len :
 				break
+			image.putpixel ((x, y), (BitArray (bin=pixelbitR).uint, pixel[1], pixel[2]))
 
+	for x in range (OFFSET+1, width) :
+		for y in range (OFFSET+1, height) :
+			pixel = image.getpixel ((x, y))
+			if indexdata < data_len :
+				pixelbitR = BitArray (uint=pixel[0], length=8).bin
+				pixelbitR = pixelbitR[:-1] + string[indexdata]
+				indexdata += 1
+			if indexdata >= data_len :
+				break
 			image.putpixel ((x, y),(BitArray(bin=pixelbitR).uint, pixel[1],pixel[2]))
 	stat = ImageStat.Stat (image)
-	print (stat.mean)
+	print ('Average (arithmetic mean) pixel level for each band: ',stat.mean)
 	image.save (file_out)
-	with open(file_out,"a") as file:
-		file.write("#N"+str(data_len))
-
-def get_n_least_significant_bits(value, n):
-    value = value << 255 - n
-    value = value % 255
-    return value >> 8 - n
 
 
-def recover_hide_data(img, size) :
+def recover_hide_data(img) :
 	image = Image.open(img)
 	width, height = image.size
 	index = 0
+	indexdata = 0
 	bufArray = ''
-	data_len = size
-	for x in range (OFFSET, width) :
-		for y in range (OFFSET, height) :
+	lenArray = ''
+	for x in range (8, OFFSET) :
+		for y in range (8, OFFSET) :
 			pixel = image.getpixel ((x, y))
-			if index < data_len :
+			if index < 32 :
+				pixelbitR = BitArray (uint=pixel[0], length=8).bin
+				data = pixelbitR[-1:]
+				index += 1
+			if index >= 32:
+				break
+			lenArray +=str (data)
+	len = BitArray(bin=lenArray).int
+	data_len = len+1
+	for x in range (OFFSET+1, width) :
+		for y in range (OFFSET+1, height) :
+			pixel = image.getpixel ((x, y))
+			if indexdata < data_len :
 				pixelbitR = BitArray (uint=pixel[0], length=8).bin
 				bufArrayR = pixelbitR[-1:]
-				index += 1
-
-			if index >= data_len :
+				indexdata += 1
+			if indexdata >= data_len :
 				break
 			bufArray +=str(bufArrayR)
-	print(bufArray)
 	return bufArray
 
 
 def recover_bit_data(data) :
 	bytes = int (data, 2).to_bytes ((len (data) + 7) // 8, byteorder='big')
-	iv = bytes[-16 :]
+	iv = bytes[-16:]
 	data = bytes[:-16]
-	print(data)
 	return [iv, data]
 
 
@@ -161,7 +177,6 @@ def descifrado_cfb(secreto, iv, datas) :
 	cipher = Cipher (algorithms.AES (secreto), modes.CFB (iv))
 	decryptor = cipher.decryptor ()
 	value = decryptor.update (datas) + decryptor.finalize ()
-	print(value)
 	return value
 
 def save_file(file_out,data):
@@ -190,7 +205,6 @@ def main() :
 			sec = paswword_padding (secret)
 			print ('encondig data')
 			cdata = cifrado_cfb (sec, datas)
-			print(cdata)
 			print ('cypher data size: ', len (cdata) / 8)
 			bytes_out = img_hide (file_in, cdata, file_out)
 			print ("Process finished, your image is " + str (file_out) )
@@ -204,11 +218,13 @@ def main() :
 		file_out = args['--out']
 		secret = args['--password']
 		try:
-			imagedata = recover_hide_data(file_in,161)
+			print('Recovering data...')
+			imagedata = recover_hide_data(file_in)
 			cipher = recover_bit_data(imagedata)
 			password = paswword_padding(secret)
 			outdata = descifrado_cfb(password,cipher[0],cipher[1])
 			save_file(file_out,outdata)
+			print('Data recovered in',file_out)
 		except ValueError as e:
 			print ('An Error Ocurred ', e)
 			sys.exit
