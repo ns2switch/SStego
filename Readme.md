@@ -2,7 +2,7 @@
 
 Simple Stego es una herramienta simple de esteganografia desarrollada para el Master de campusciberseguridad.com
 
-Es una aplicación muy sencilla para ocultar información en una fotografia.
+Es una aplicación muy sencilla para ocultar información en una fotografia.(Solo admite BMP y PNG)
 Actualmente , cifra los datos con AES , mediante la contraseña introducida por el usuario y la codifica en el LSB del canal Rojo de la fotografia.
 
 El usuario debe conocer el nombre con extensión del archivo cifrado dentro de la imagen.
